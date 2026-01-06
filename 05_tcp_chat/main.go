@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"sync"
 )
 
 // Client 代表一个聊天客户端
@@ -20,7 +19,6 @@ var (
 	entering = make(chan Client)
 	leaving  = make(chan Client)
 	messages = make(chan string) // 所有客户端发来的消息
-	mu sync.RWMutex
 )
 
 // broadcaster 用于广播消息
@@ -33,25 +31,23 @@ func broadcaster() {
 	// 3. 处理用户进入和离开
 	for {
 		select {
-			// 监听消息，如果收到消息群发给所有在线的客户端
-		case msg := <- messages:
-			mu.RLock()
-			for cli, flag := range clients {
-				if flag {
-					cli.Conn.Write([]byte(msg))
+		case msg := <-messages:
+			for cli := range clients {
+				cli.C <- msg
+			}
+		case cli := <-entering:
+			clients[cli] = true
+			for c := range clients {
+				c.C <- fmt.Sprintf("%s 已加入聊天室", cli.Name)
+			}
+		case cli := <-leaving:
+			if clients[cli] {
+				delete(clients, cli)
+				close(cli.C)
+				for c := range clients {
+					c.C <- fmt.Sprintf("%s 已离开聊天室", cli.Name)
 				}
 			}
-			mu.RUnlock()
-		case cli := <- entering:
-			mu.Lock()
-			clients[cli] = true
-			messages <- fmt.Sprintf("client %s entering", cli.Name)
-			mu.Unlock()
-		case cli := <- leaving:
-			mu.Lock()
-			clients[cli] = false
-			messages <- fmt.Sprintf("client %s leaving", cli.Name)
-			mu.Unlock()
 		}
 	}
 }
@@ -61,22 +57,22 @@ func handleConn(conn net.Conn) {
 	ch := make(chan string) // 对外发送消息的通道
 	go clientWriter(conn, ch)
 
-	// TODO: 实现连接处理逻辑
-	// 1. 获取客户端地址作为名字
-	ip := conn.RemoteAddr()
-	cli := Client{
-		Name: ip.String(),
-		Conn: conn,
-		C: ch,
-	}
-	// 2. 将新用户发送到 entering 通道
+	name := conn.RemoteAddr().String()
+	cli := Client{Name: name, Conn: conn, C: ch}
+	ch <- fmt.Sprintf("欢迎加入，您的昵称为 %s", name)
 	entering <- cli
-	// 3. 使用 bufio.Scanner 读取用户输入并发送到 messages 通道
-	scanner := bufio.NewScanner(cli.Conn)
-	messages <- scanner.Text()
-	// 4. 用户断开连接后，发送到 leaving 通道并关闭连接
+
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		txt := scanner.Text()
+		messages <- fmt.Sprintf("%s: %s", name, txt)
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("client %s scanner error: %v", name, err)
+	}
+
 	leaving <- cli
-	cli.Conn.Close()
+	conn.Close()
 }
 
 func clientWriter(conn net.Conn, ch <-chan string) {
