@@ -26,11 +26,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查 Header "Authorization" == "secret-token"
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
 		// 失败则 w.WriteHeader(http.StatusUnauthorized) 并 return
 		next.ServeHTTP(w, r)
 	})
@@ -40,13 +35,6 @@ func AuthMiddleware(next http.Handler) http.Handler {
 func RecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 使用 defer recover() 捕获 panic
-
-		defer func() {
-			if err := recover(); err != nil {
-				log.Println(err)
-			}
-		}()
-
 		next.ServeHTTP(w, r)
 	})
 }
@@ -75,12 +63,11 @@ func main() {
 
 	// 应用中间件链
 	// 注意顺序：Recovery 应该在最外层（最先进入，最后退出）以捕获所有 panic
-	
 	// Logging 其次
 	// Auth 最后（最接近业务逻辑）
 	
 	// 这里目前只应用了 Logging，请补充其他中间件
-	handler := Chain(mux, RecoveryMiddleware, LoggingMiddleware, AuthMiddleware)
+	handler := Chain(mux, LoggingMiddleware)
 
 	server := &http.Server{
 		Addr:    ":8080",

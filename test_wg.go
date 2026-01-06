@@ -1,12 +1,11 @@
 package main
+
 import (
-    "fmt"
-    "sync"
+	"fmt"
+	"time"
 )
+
 func main() {
-    var wg sync.WaitGroup
-    wg.Go(func() {
-        fmt.Println("Hello")
-    })
-    wg.Wait()
+	time := time.Now().Format("2006-01-02 15:04:05 MST")
+    fmt.Println(time)
 }
